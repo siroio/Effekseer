@@ -8,8 +8,8 @@ namespace EffekseerRenderer
 std::array<std::array<float, 4>, 13> ToUniform(const Effekseer::Gradient& gradient)
 {
 	std::array<std::array<float, 4>, 13> ret;
-	ret[0][0] = gradient.ColorCount;
-	ret[0][1] = gradient.AlphaCount;
+	ret[0][0] = (float)gradient.ColorCount;
+	ret[0][1] = (float)gradient.AlphaCount;
 	ret[0][2] = 0.0F;
 	ret[0][3] = 0.0F;
 

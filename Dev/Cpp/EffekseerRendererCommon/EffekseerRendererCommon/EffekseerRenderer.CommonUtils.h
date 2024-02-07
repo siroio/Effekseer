@@ -838,7 +838,7 @@ struct MaterialShaderParameterGenerator
 			vsOffset += sizeof(float) * 4 * materialFile.GetUniformCount();
 
 			// TODO : remove magic number
-			vsOffset += sizeof(float) * 4 * 13 * materialFile.Gradients.size();
+			vsOffset += sizeof(float) * 4 * 13 * static_cast<int>(materialFile.Gradients.size());
 
 			VertexShaderUniformBufferSize = vsOffset;
 		}
@@ -864,7 +864,7 @@ struct MaterialShaderParameterGenerator
 			vsOffset += sizeof(float) * 4 * materialFile.GetUniformCount();
 
 			// TODO : remove magic number
-			vsOffset += sizeof(float) * 4 * 13 * materialFile.Gradients.size();
+			vsOffset += sizeof(float) * 4 * 13 * static_cast<int>(materialFile.Gradients.size());
 
 			VertexShaderUniformBufferSize = vsOffset;
 		}
@@ -905,7 +905,7 @@ struct MaterialShaderParameterGenerator
 		psOffset += sizeof(float) * 4 * materialFile.GetUniformCount();
 
 		// TODO : remove magic number
-		psOffset += sizeof(float) * 4 * 13 * materialFile.Gradients.size();
+		psOffset += sizeof(float) * 4 * 13 * static_cast<int>(materialFile.Gradients.size());
 
 		PixelShaderUniformBufferSize = psOffset;
 	}
@@ -1666,8 +1666,7 @@ inline RendererStateFlipbook ToState(const Effekseer::NodeRendererFlipbookParame
 template <typename T>
 bool GenerateIndexDataStride(Effekseer::Backend::GraphicsDeviceRef graphicsDevice, int32_t squareMaxCount, Effekseer::Backend::IndexBufferRef& indexBuffer, Effekseer::Backend::IndexBufferRef& indexBufferForWireframe)
 {
-	auto stride = sizeof(T) == 2 ? 
-		Effekseer::Backend::IndexBufferStrideType::Stride2 : Effekseer::Backend::IndexBufferStrideType::Stride4;
+	auto stride = sizeof(T) == 2 ? Effekseer::Backend::IndexBufferStrideType::Stride2 : Effekseer::Backend::IndexBufferStrideType::Stride4;
 
 	{
 		std::vector<T> buffer;
