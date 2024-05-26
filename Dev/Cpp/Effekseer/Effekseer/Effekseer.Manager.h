@@ -270,28 +270,42 @@ public:
 		\~English get an GPU performance timer
 		\~Japanese GPUパフォーマンスタイマー取得する。
 	*/
-	virtual GPUTimerRef GetGPUTimer() = 0;
+	virtual GpuTimerRef GetGpuTimer() = 0;
 
 	/**
 		@brief
 		\~English get an GPU performance timer
 		\~Japanese GPUパフォーマンスタイマーを設定する。
 	*/
-	virtual void SetGPUTimer(GPUTimerRef gpuTimer) = 0;
+	virtual void SetGpuTimer(GpuTimerRef gpuTimer) = 0;
 	
 	/**
 		@brief
-		\~English get an GPU performance timer
-		\~Japanese GPUパフォーマンスタイマー取得する。
+		\~English get an GPU particle system
+		\~Japanese GPUパーティクルシステム取得する。
 	*/
-	virtual GpuParticlesRef GetGpuParticles() = 0;
+	virtual GpuParticleSystemRef GetGpuParticleSystem() = 0;
 
 	/**
 		@brief
-		\~English get an GPU performance timer
-		\~Japanese GPUパフォーマンスタイマーを設定する。
+		\~English get an GPU particle system
+		\~Japanese GPUパーティクルシステムを設定する。
 	*/
-	virtual void SetGpuParticles(GpuParticlesRef gpuParticles) = 0;
+	virtual void SetGpuParticleSystem(GpuParticleSystemRef system) = 0;
+
+	/**
+	@brief
+	\~English get an GPU particle factory
+	\~Japanese GPUパーティクルファクトリ取得する。
+	*/
+	virtual GpuParticleFactoryRef GetGpuParticleFactory() = 0;
+
+	/**
+	@brief
+	\~English get an GPU particle factory
+	\~Japanese GPUパーティクルファクトリを設定する。
+	*/
+	virtual void SetGpuParticleFactory(GpuParticleFactoryRef factory) = 0;
 
 	/**
 		@brief	設定クラスを取得する。
@@ -946,14 +960,14 @@ public:
 		\~English	Gets the GPU time (microseconds) taken to render the all effects.
 		\~Japanese	エフェクト全ての描画処理にかかるGPU時間(マイクロ秒)を取得する。
 	*/
-	virtual int32_t GetGPUTime() const = 0;
+	virtual int32_t GetGpuTime() const = 0;
 
 	/**
 		@brief
 		\~English	Gets the GPU time (microseconds) taken to render the effect.
 		\~Japanese	エフェクトの描画処理にかかるGPU時間(マイクロ秒)を取得する。
 	*/
-	virtual int32_t GetGPUTime(Handle handle) const = 0;
+	virtual int32_t GetGpuTime(Handle handle) const = 0;
 
 	/**
 		@brief

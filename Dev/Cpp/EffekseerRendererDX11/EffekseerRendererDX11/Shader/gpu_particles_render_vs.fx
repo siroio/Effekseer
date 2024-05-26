@@ -2,7 +2,7 @@
 
 cbuffer cb0 : register(b0)
 {
-    DrawConstants constants;
+    RenderConstants constants;
 };
 cbuffer cb1 : register(b1)
 {
@@ -51,11 +51,10 @@ void transformSprite(ParticleData particle, inout float3 position)
     else if (paramData.ShapeData == 1) {
         // DirectionalBillboard
         float3 R, U, F;
-        U = UnpackFloat4(particle.DirectionSpeed).xyz;
+        U = normalize(UnpackNormalizedFloat3(particle.Direction));
         F = constants.CameraFront;
         R = normalize(cross(U, F));
-        U = normalize(cross(F, R));
-        R = normalize(cross(U, F));
+        F = normalize(cross(R, U));
         position = mul(position, float3x3(R, U, F));
     }
     else if (paramData.ShapeData == 2) {
@@ -70,6 +69,9 @@ void transformSprite(ParticleData particle, inout float3 position)
 void transformModel(ParticleData particle, inout float3 position)
 {
     // Position and Rotation and Scale Transform
+    if (constants.CoordinateReversed) {
+        position.z = -position.z;
+    }
     position = mul(float4(position, 1.0f), particle.Transform).xyz;
 }
 
@@ -84,7 +86,7 @@ void transformTrail(ParticleData particle, inout float3 position, inout float2 u
     uint segmentID = min(vertexID / 2, trailLength);
     if (segmentID == 0) {
         trailPosition = particle.Transform[3];
-        trailDirection = normalize(UnpackFloat4(particle.DirectionSpeed).xyz);
+        trailDirection = normalize(UnpackNormalizedFloat3(particle.Direction));
     }
     else {
         uint trailID = emitter.TrailHead + instanceID * paramData.ShapeData;

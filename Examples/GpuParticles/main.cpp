@@ -27,9 +27,10 @@ const char16_t* examplesFiles[] = {
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_sprite_gradient.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_sprite_directional.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_sprite_mass.efkefc",
-	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_force_tornade.efkefc",
+	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_force_vortex.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_force_turbulence.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_emit_line.efkefc",
+	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_emit_sphere.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_emit_mesh.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_mesh_simple.efkefc",
 	EFK_EXAMPLE_ASSETS_DIR_U16 u"GpuParticles_trails_simple.efkefc",
@@ -61,7 +62,8 @@ int main(int argc, char** argv)
 
 	// Setup GPUParticles module
 	// GPUParticlesモジュールをセットアップする
-	efkManager->SetGpuParticles(efkRenderer->CreateGpuParticles());
+	efkManager->SetGpuParticleFactory(efkRenderer->CreateGpuParticleFactory());
+	efkManager->SetGpuParticleSystem(efkRenderer->CreateGpuParticleSystem());
 
 	// Specify a position of view
 	// 視点位置を確定
@@ -134,6 +136,10 @@ int main(int argc, char** argv)
 		// 描画パスの開始
 		device.BeginRenderPass();
 
+		// Begin to rendering pass
+		// 描画パスの開始
+		device.BeginRenderPass();
+
 		// Specify a projection matrix
 		// 投影行列を設定
 		efkRenderer->SetProjectionMatrix(projectionMatrix);
@@ -157,6 +163,10 @@ int main(int argc, char** argv)
 		// Finish to rendering effects
 		// エフェクトの描画終了処理を行う。
 		efkRenderer->EndRendering();
+
+		// Finish to rendering pass
+		// 描画パスの終了
+		device.EndRenderPass();
 
 		// Finish to rendering pass
 		// 描画パスの終了

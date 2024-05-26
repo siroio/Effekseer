@@ -307,11 +307,11 @@ void EffectNodeImplemented::LoadParameter(unsigned char*& pos, EffectNode* paren
 
 			if (gpuParticleEnabled)
 			{
-				auto gpuParticlesParamSet = LoadGpuParticlesParameter(pos, ef->GetVersion());
+				auto gpuParticlesParamSet = LoadGpuParticlesParameter(pos, ef->GetVersion(), m_effect->GetMaginification(), setting->GetCoordinateSystem());
 
-				if (auto gpuParticles = setting->GetGpuParticles())
+				if (auto factory = setting->GetGpuParticleFactory())
 				{
-					GpuParticlesResource = gpuParticles->CreateResource(gpuParticlesParamSet, m_effect);
+					GpuParticlesResource = factory->CreateResource(gpuParticlesParamSet, m_effect);
 				}
 			}
 		}

@@ -2,9 +2,13 @@
 
 cbuffer cb0 : register(b0)
 {
+    ComputeConstants constants;
+};
+cbuffer cb1 : register(b1)
+{
     ParameterData paramData;
 }
-cbuffer cb1 : register(b1)
+cbuffer cb2 : register(b2)
 {
     EmitterData emitter;
 }
@@ -23,15 +27,15 @@ float3 Vortex(float rotation, float attraction, float3 center, float3 axis, floa
     center = transform[3] + center;
     axis = normalize(mul(float4(axis, 0.0f), transform));
 
-    float3 diff = position - center;
-    float distance = length(diff);
-    if (distance == 0.0f) {
+    float3 localPos = position - center;
+    float3 axisToPos = localPos - axis * dot(axis, localPos);
+    float distance = length(axisToPos);
+    if (distance < 0.0001f) {
         return float3(0.0f, 0.0f, 0.0f);
     }
 
-    float3 radial = diff / distance;
+    float3 radial = normalize(axisToPos);
     float3 tangent = cross(axis, radial);
-    radial = cross(tangent, axis);
     return tangent * rotation - radial * attraction;
 }
 
@@ -54,14 +58,15 @@ void main(uint3 dtid : SV_DispatchThreadID)
         float4 angularVelocity = RandomFloat4Range(seed, paramData.AngularVelocity);
 
         float3 position = particle.Transform[3];
-        float4 directionSpeed = UnpackFloat4(particle.DirectionSpeed);
-        float3 velocity = directionSpeed.xyz * directionSpeed.w;
+        float3 lastPosition = position;
+        float3 direction = normalize(UnpackNormalizedFloat3(particle.Direction));
+        float3 velocity = UnpackFloat4(particle.Velocity).xyz;
 
         if (emitter.TrailSize > 0) {
             uint trailID = emitter.TrailHead + dtid.x * paramData.ShapeData + emitter.TrailPhase;
             TrailData trail;
             trail.Position = position;
-            trail.Direction = PackNormalizedFloat3(directionSpeed.xyz);
+            trail.Direction = PackNormalizedFloat3(direction);
             Trails[trailID] = trail;
         }
         
@@ -79,18 +84,6 @@ void main(uint3 dtid : SV_DispatchThreadID)
         // Gravity
         velocity += paramData.Gravity * deltaTime;
         
-        // Vortex
-        if (paramData.VortexRotation != 0.0f || paramData.VortexAttraction != 0.0f) {
-            velocity += Vortex(paramData.VortexRotation, paramData.VortexAttraction, 
-                paramData.VortexCenter, paramData.VortexAxis,
-                position, emitter.Transform) * deltaTime;
-        }
-        // Turbulence
-        if (paramData.TurbulencePower != 0.0f) {
-            float4 vfTexel = NoiseTex.SampleLevel(NoiseSamp, position / 8.0f + 0.5f, 0);
-            velocity += (vfTexel.xyz * 2.0f - 1.0f) * paramData.TurbulencePower * deltaTime;
-        }
-
         // Damping
         float speed = length(velocity);
         if (speed > 0.0f) {
@@ -101,10 +94,22 @@ void main(uint3 dtid : SV_DispatchThreadID)
         // Move from velocity
         position += velocity * deltaTime;
 
-        // Recalc direction and speed from velocity
-        directionSpeed.w = length(velocity);
-        if (directionSpeed.w > 0.0001f) {
-            directionSpeed.xyz = normalize(velocity);
+        // Vortex
+        if (paramData.VortexRotation != 0.0f || paramData.VortexAttraction != 0.0f) {
+            position += Vortex(paramData.VortexRotation, paramData.VortexAttraction, 
+                paramData.VortexCenter, paramData.VortexAxis,
+                position, emitter.Transform) * deltaTime;
+        }
+        // Turbulence
+        if (paramData.TurbulencePower != 0.0f) {
+            float4 vfTexel = NoiseTex.SampleLevel(NoiseSamp, position * paramData.TurbulenceScale + 0.5f, 0);
+            position += (vfTexel.xyz * 2.0f - 1.0f) * paramData.TurbulencePower * deltaTime;
+        }
+
+        // Calc direction
+        float3 diff = position - lastPosition;
+        if (length(diff) > 0.0001f) {
+            direction = normalize(diff);
         }
 
         // Rotation (Euler)
@@ -154,7 +159,8 @@ void main(uint3 dtid : SV_DispatchThreadID)
         color.a *= clamp((lifeTime - particle.LifeAge) / paramData.FadeOut, 0.0, 1.0);
 
         particle.Transform = TRSMatrix(position, rotation, scale.xyz * scale.w * paramData.ShapeSize);
-        particle.DirectionSpeed = PackFloat4(directionSpeed);
+        particle.Velocity = PackFloat4(float4(velocity, 0.0));
+        particle.Direction = PackNormalizedFloat3(direction);
         particle.Color = PackColor(color);
         Particles[particleID] = particle;
     }

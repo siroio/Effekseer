@@ -2,23 +2,22 @@
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-#include "EffekseerRendererDX11.GPUTimer.h"
+#include "EffekseerRendererGL.GpuTimer.h"
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-namespace EffekseerRendererDX11
+namespace EffekseerRendererGL
 {
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-GPUTimer::GPUTimer(RendererImplemented* renderer, bool hasRefCount)
-	: DeviceObject(renderer, hasRefCount)
+GpuTimer::GpuTimer(RendererImplemented* renderer)
+	: DeviceObject(renderer->GetInternalGraphicsDevice().Get())
+	, m_renderer(renderer)
 {
-	if (auto renderer = GetRenderer())
-	{
-		renderer->GetStandardRenderer()->UpdateGPUTimerCount(+1);
-	}
+	m_renderer->GetStandardRenderer()->UpdateGpuTimerCount(+1);
+	m_renderer->AddRef();
 
 	InitDevice();
 }
@@ -26,73 +25,44 @@ GPUTimer::GPUTimer(RendererImplemented* renderer, bool hasRefCount)
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-GPUTimer::~GPUTimer()
+GpuTimer::~GpuTimer()
 {
 	ReleaseDevice();
 
-	if (auto renderer = GetRenderer())
-	{
-		renderer->GetStandardRenderer()->UpdateGPUTimerCount(-1);
-	}
+	m_renderer->GetStandardRenderer()->UpdateGpuTimerCount(-1);
+	m_renderer->Release();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::InitDevice()
-{
-	auto device = GetRenderer()->GetDevice();
-
-	{
-		D3D11_QUERY_DESC desc = {};
-		desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-		ID3D11Query* disjoint = nullptr;
-		device->CreateQuery(&desc, &disjoint);
-		m_disjoint.reset(disjoint);
-	}
-
-	for (auto& kv : m_timeData)
-	{
-		TimeData& timeData = kv.second;
-
-		D3D11_QUERY_DESC desc = {};
-		desc.Query = D3D11_QUERY_TIMESTAMP;
-
-		for (uint32_t i = 0; i < NUM_PHASES; i++)
-		{
-			ID3D11Query* startQuery = nullptr;
-			device->CreateQuery(&desc, &startQuery);
-			timeData.startQuery[i].reset(startQuery);
-
-			ID3D11Query* stopQuery = nullptr;
-			device->CreateQuery(&desc, &stopQuery);
-			timeData.stopQuery[i].reset(stopQuery);
-		}
-	}
-}
-
-//-----------------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------------
-void GPUTimer::ReleaseDevice()
+void GpuTimer::InitDevice()
 {
 	for (auto& kv : m_timeData)
 	{
 		TimeData& timeData = kv.second;
-		for (uint32_t i = 0; i < NUM_PHASES; i++)
-		{
-			timeData.startQuery[i].reset();
-			timeData.stopQuery[i].reset();
-		}
+		GLExt::glGenQueries(NUM_PHASES, timeData.timeElapsedQuery);
 	}
-
-	m_disjoint.reset();
+	GLCheckError();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::OnLostDevice()
+void GpuTimer::ReleaseDevice()
+{
+	for (auto& kv : m_timeData)
+	{
+		TimeData& timeData = kv.second;
+		GLExt::glDeleteQueries(NUM_PHASES, timeData.timeElapsedQuery);
+	}
+	GLCheckError();
+}
+
+//-----------------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------------
+void GpuTimer::OnLostDevice()
 {
 	ReleaseDevice();
 }
@@ -100,7 +70,7 @@ void GPUTimer::OnLostDevice()
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::OnResetDevice()
+void GpuTimer::OnResetDevice()
 {
 	InitDevice();
 }
@@ -108,68 +78,43 @@ void GPUTimer::OnResetDevice()
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::BeginFrame()
+void GpuTimer::BeginStage(Effekseer::GpuStage stage)
 {
-	assert(m_state != State::DuringFrame);
+	assert(stage != Effekseer::GpuStage::None);
 
-	if (m_state == State::AfterFrame)
+	uint32_t index = static_cast<uint32_t>(stage);
+	assert(m_stageState[index] != State::DuringStage);
+
+	if (m_stageState[index] == State::AfterStage)
 	{
-		// Avoid D3D11 warning
-		UpdateResults();
+		UpdateResults(stage);
 	}
 
-	auto context = GetRenderer()->GetContext();
-	context->Begin(m_disjoint.get());
-	m_state = State::DuringFrame;
+	m_stageState[index] = State::DuringStage;
+	m_currentStage = stage;
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::EndFrame()
+void GpuTimer::EndStage(Effekseer::GpuStage stage)
 {
-	assert(m_state == State::DuringFrame);
+	assert(stage != Effekseer::GpuStage::None);
 
-	auto context = GetRenderer()->GetContext();
-	context->End(m_disjoint.get());
-	m_state = State::AfterFrame;
+	uint32_t index = static_cast<uint32_t>(stage);
+	assert(m_stageState[index] == State::DuringStage);
+
+	m_stageState[index] = State::AfterStage;
+	m_currentStage = Effekseer::GpuStage::None;
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::UpdateResults()
+void GpuTimer::UpdateResults(Effekseer::GpuStage stage)
 {
-	HRESULT hr = S_OK;
-	auto context = GetRenderer()->GetContext();
-
-	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint = {1, TRUE};
-	hr = context->GetData(m_disjoint.get(), &disjoint, sizeof(disjoint), 0);
-	if (hr != S_OK)
-	{
-		return;
-	}
-
-
-	auto getTimeStamp = [context](ID3D11Query* query, uint64_t& time)
-	{
-		while (true)
-		{
-			HRESULT hr = context->GetData(query, &time, sizeof(time), 0);
-			if (hr == S_OK)
-			{
-				return true;
-			}
-			else if (hr == S_FALSE)
-			{
-				Sleep(1);
-			}
-			else
-			{
-				return false;
-			}
-		}
-	};
+	assert(stage != Effekseer::GpuStage::None);
+	uint32_t index = static_cast<uint32_t>(stage);
 
 	for (auto& kv : m_timeData)
 	{
@@ -177,103 +122,115 @@ void GPUTimer::UpdateResults()
 		timeData.result = 0;
 
 		uint64_t elapsedTime = 0;
-		for (uint32_t i = 0; i < NUM_PHASES; i++)
+		for (uint32_t phase = 0; phase < NUM_PHASES; phase++)
 		{
-			if (timeData.queryRequested[i])
+			if (timeData.queryedStage[phase] == stage)
 			{
-				uint64_t startTime, stopTime;
-				if (!getTimeStamp(timeData.startQuery[i].get(), startTime)) continue;
-				if (!getTimeStamp(timeData.stopQuery[i].get(), stopTime)) continue;
-				elapsedTime += (stopTime - startTime) * 1000000 / disjoint.Frequency;
-				timeData.queryRequested[i] = false;
+				uint64_t result = 0;
+				GLExt::glGetQueryObjectui64v(timeData.timeElapsedQuery[phase], GL_QUERY_RESULT, &result);
+				elapsedTime += result / 1000; // nanoseconds -> microseconds
+				timeData.queryedStage[phase] = Effekseer::GpuStage::None;
 			}
 		}
 		timeData.result = static_cast<int32_t>(elapsedTime);
 	}
 
-	m_state = State::ResultUpdated;
+	m_stageState[index] = State::ResultUpdated;
+
+	GLCheckError();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::AddTimer(const void* object)
+void GpuTimer::AddTimer(const void* object)
 {
 	assert(m_timeData.find(object) == m_timeData.end());
 
-	auto device = GetRenderer()->GetDevice();
-
-	D3D11_QUERY_DESC desc = {};
-	desc.Query = D3D11_QUERY_TIMESTAMP;
-
 	TimeData timeData;
-	for (uint32_t i = 0; i < NUM_PHASES; i++)
-	{
-		ID3D11Query* startQuery = nullptr;
-		device->CreateQuery(&desc, &startQuery);
-		timeData.startQuery[i].reset(startQuery);
-
-		ID3D11Query* stopQuery = nullptr;
-		device->CreateQuery(&desc, &stopQuery);
-		timeData.stopQuery[i].reset(stopQuery);
-	}
+	GLExt::glGenQueries(NUM_PHASES, timeData.timeElapsedQuery);
 
 	m_timeData.emplace(object, std::move(timeData));
+
+	GLCheckError();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::RemoveTimer(const void* object)
+void GpuTimer::RemoveTimer(const void* object)
 {
-	m_timeData.erase(object);
+	auto it = m_timeData.find(object);
+	if (it != m_timeData.end())
+	{
+		TimeData& timeData = it->second;
+		GLExt::glDeleteQueries(NUM_PHASES, timeData.timeElapsedQuery);
+		m_timeData.erase(it);
+	}
+
+	GLCheckError();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::Start(const void* object, uint32_t phase)
+void GpuTimer::Start(const void* object)
 {
-	assert(phase < NUM_PHASES);
-
-	auto context = GetRenderer()->GetContext();
+	assert(m_currentStage != Effekseer::GpuStage::None);
 
 	auto it = m_timeData.find(object);
 	if (it != m_timeData.end())
 	{
 		TimeData& timeData = it->second;
-		context->End(timeData.startQuery[phase].get());
-		timeData.queryRequested[phase] = true;
+		for (uint32_t phase = 0; phase < NUM_PHASES; phase++)
+		{
+			if (timeData.queryedStage[phase] == Effekseer::GpuStage::None)
+			{
+				GLExt::glBeginQuery(GL_TIME_ELAPSED, timeData.timeElapsedQuery[phase]);
+				timeData.queryedStage[phase] = m_currentStage;
+				break;
+			}
+		}
 	}
+
+	GLCheckError();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-void GPUTimer::Stop(const void* object, uint32_t phase)
+void GpuTimer::Stop(const void* object)
 {
-	assert(phase < NUM_PHASES);
-
-	auto context = GetRenderer()->GetContext();
+	assert(m_currentStage != Effekseer::GpuStage::None);
 
 	auto it = m_timeData.find(object);
 	if (it != m_timeData.end())
 	{
 		TimeData& timeData = it->second;
-		context->End(timeData.stopQuery[phase].get());
+		for (uint32_t phase = 0; phase < NUM_PHASES; phase++)
+		{
+			if (timeData.queryedStage[phase] == m_currentStage)
+			{
+				GLExt::glEndQuery(GL_TIME_ELAPSED);
+				break;
+			}
+		}
 	}
+
+	GLCheckError();
 }
 
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-int32_t GPUTimer::GetResult(const void* object)
+int32_t GpuTimer::GetResult(const void* object)
 {
-	assert(m_state == State::ResultUpdated || m_state == State::AfterFrame);
-
-	if (m_state == State::AfterFrame)
+	for (uint32_t index = 1; index < 5; index++)
 	{
-		UpdateResults();
+		if (m_stageState[index] == State::AfterStage)
+		{
+			UpdateResults(static_cast<Effekseer::GpuStage>(index));
+		}
 	}
 
 	auto it = m_timeData.find(object);
@@ -288,7 +245,7 @@ int32_t GPUTimer::GetResult(const void* object)
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------
-} // namespace EffekseerRendererDX11
+} // namespace EffekseerRendererGL
 //-----------------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------------

@@ -8,7 +8,7 @@ struct ParameterData
 
     float2 LifeTime;
     uint EmitShapeType;
-    uint Padding1;
+    uint EmitRotationApplied;
     
     float4 EmitShapeData[2];
 
@@ -80,9 +80,9 @@ struct ParticleData
     uint Seed;
     float LifeAge;
     uint InheritColor;
-    uint2 DirectionSpeed;
     uint Color;
-    uint Padding;
+    uint Direction;
+    uint2 Velocity;
     float4x3 Transform;
 };
 
@@ -95,17 +95,28 @@ struct TrailData
 struct EmitPoint
 {
     float3 Position;
+    uint Reserved;
     uint Normal;
-    uint Binormal;
     uint Tangent;
     uint UV;
-    uint VColor;
+    uint Color;
 };
 
-struct DrawConstants
+#define COORDINATE_SYSTEM_RH 0
+#define COORDINATE_SYSTEM_LH 1
+
+struct ComputeConstants
+{
+    uint CoordinateReversed;
+    float Reserved0;
+    float Reserved1;
+    float Reserved2;
+};
+
+struct RenderConstants
 {
     float3 CameraPos;
-    float Reserved0;
+    uint CoordinateReversed;
     float3 CameraFront;
     float Reserved1;
     

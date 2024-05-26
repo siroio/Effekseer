@@ -19,7 +19,7 @@
 
 #include "Effekseer.Setting.h"
 
-#include "Renderer/Effekseer.GPUTimer.h"
+#include "Renderer/Effekseer.GpuTimer.h"
 #include "Renderer/Effekseer.ModelRenderer.h"
 #include "Renderer/Effekseer.RibbonRenderer.h"
 #include "Renderer/Effekseer.RingRenderer.h"
@@ -189,9 +189,9 @@ void ManagerImplemented::StopStoppingEffects()
 			}
 
 			// when gpu particles are found
-			if (auto gpuParticles = GetGpuParticles())
+			if (auto gpuParticleSystem = GetGpuParticleSystem())
 			{
-				if (gpuParticles->GetParticleCount((GpuParticles::ParticleGroupID)draw_set.GlobalPointer) > 0)
+				if (gpuParticleSystem->GetParticleCount(draw_set.GlobalPointer) > 0)
 				{
 					continue;
 				}
@@ -368,9 +368,9 @@ void ManagerImplemented::ExecuteEvents()
 				GetSoundPlayer()->StopTag(ds.second.GlobalPointer);
 			}
 
-			if (GetGpuParticles() != nullptr)
+			if (GetGpuParticleSystem() != nullptr)
 			{
-				GetGpuParticles()->KillParticles((GpuParticles::ParticleGroupID)ds.second.GlobalPointer);
+				GetGpuParticleSystem()->KillParticles(ds.second.GlobalPointer);
 			}
 		}
 
@@ -630,24 +630,54 @@ void ManagerImplemented::SetTrackRenderer(TrackRendererRef renderer)
 	m_trackRenderer = renderer;
 }
 
-GPUTimerRef ManagerImplemented::GetGPUTimer()
+GpuTimerRef ManagerImplemented::GetGpuTimer()
 {
 	return m_gpuTimer;
 }
 
-void ManagerImplemented::SetGPUTimer(GPUTimerRef gpuTimer)
+void ManagerImplemented::SetGpuTimer(GpuTimerRef gpuTimer)
 {
+	if (m_gpuTimer  && m_gpuParticleSystem)
+	{
+		m_gpuTimer->RemoveTimer(m_gpuParticleSystem.Get());
+	}
+
 	m_gpuTimer = gpuTimer;
+
+	if (m_gpuTimer && m_gpuParticleSystem)
+	{
+		m_gpuTimer->AddTimer(m_gpuParticleSystem.Get());
+	}
 }
 
-GpuParticlesRef ManagerImplemented::GetGpuParticles()
+GpuParticleSystemRef ManagerImplemented::GetGpuParticleSystem()
 {
-	return m_setting->GetGpuParticles();
+	return m_gpuParticleSystem;
 }
 
-void ManagerImplemented::SetGpuParticles(GpuParticlesRef gpuParticles)
+void ManagerImplemented::SetGpuParticleSystem(GpuParticleSystemRef system)
 {
-	m_setting->SetGpuParticles(gpuParticles);
+	if (m_gpuTimer  && m_gpuParticleSystem)
+	{
+		m_gpuTimer->RemoveTimer(m_gpuParticleSystem.Get());
+	}
+
+	m_gpuParticleSystem = system;
+
+	if (m_gpuTimer && m_gpuParticleSystem)
+	{
+		m_gpuTimer->AddTimer(m_gpuParticleSystem.Get());
+	}
+}
+
+GpuParticleFactoryRef ManagerImplemented::GetGpuParticleFactory()
+{
+	return m_setting->GetGpuParticleFactory();
+}
+
+void ManagerImplemented::SetGpuParticleFactory(GpuParticleFactoryRef factory)
+{
+	m_setting->SetGpuParticleFactory(factory);
 }
 
 SoundPlayerRef ManagerImplemented::GetSoundPlayer()
@@ -1411,6 +1441,11 @@ void ManagerImplemented::Update(const UpdateParameter& parameter)
 	EndUpdate();
 
 	ExecuteSounds();
+
+	if (m_gpuTimer)
+	{
+		m_gpuTimer->UpdateResults();
+	}
 }
 
 void ManagerImplemented::DoUpdate(const UpdateParameter& parameter, int times)
@@ -1663,6 +1698,14 @@ void ManagerImplemented::UpdateHandleInternal(DrawSet& drawSet)
 		}
 	}
 
+	if (drawSet.GlobalPointer->IsUsingGpuParticles)
+	{
+		if (auto gpuParticleSystem = GetGpuParticleSystem())
+		{
+			gpuParticleSystem->SetDeltaTime(drawSet.GlobalPointer, drawSet.GlobalPointer->GetNextDeltaFrame());
+		}
+	}
+
 	drawSet.GlobalPointer->EndDeltaFrame();
 }
 
@@ -1780,14 +1823,19 @@ void ManagerImplemented::ResetAndPlayWithDataSet(DrawSet& drawSet, float frame)
 
 void ManagerImplemented::Compute()
 {
-	if (auto gpuParticles = GetGpuParticles())
+	ScopedGpuStage gpuPass(m_gpuTimer, GpuStage::Compute);
+
+	if (auto gpuParticleSystem = GetGpuParticleSystem())
 	{
+		ScopedGpuTime gpuTime(m_gpuTimer, gpuParticleSystem.Get());
+
+		GpuParticleSystem::Context context{};
+		context.CoordinateReversed = GetCoordinateSystem() != CoordinateSystem::RH;
+
 		for (int i = 0; i < m_nextComputeCount; i++)
 		{
-			gpuParticles->ComputeFrame();
+			gpuParticleSystem->ComputeFrame(context);
 		}
-
-		gpuParticles->ResetDeltaTime();
 	}
 }
 
@@ -1805,10 +1853,7 @@ void ManagerImplemented::Draw(const Manager::DrawParameter& drawParameter)
 	// start to record a time
 	int64_t beginTime = ::Effekseer::GetTime();
 
-	if (m_gpuTimer != nullptr)
-	{
-		m_gpuTimer->BeginFrame();
-	}
+	ScopedGpuStage gpuPass(m_gpuTimer, GpuStage::Draw);
 
 	const auto cullingPlanes = GeometryUtility::CalculateFrustumPlanes(drawParameter.ViewProjectionMatrix, drawParameter.ZNear, drawParameter.ZFar, GetSetting()->GetCoordinateSystem());
 
@@ -1821,8 +1866,7 @@ void ManagerImplemented::Draw(const Manager::DrawParameter& drawParameter)
 
 		if (drawSet.IsAutoDrawing)
 		{
-			if (m_gpuTimer != nullptr)
-				m_gpuTimer->Start(drawSet.GlobalPointer, 0);
+			ScopedGpuTime gpuTime(m_gpuTimer, drawSet.GlobalPointer);
 
 			if (drawSet.GlobalPointer->RenderedInstanceContainers.size() > 0)
 			{
@@ -1838,9 +1882,6 @@ void ManagerImplemented::Draw(const Manager::DrawParameter& drawParameter)
 			{
 				drawSet.InstanceContainerPointer->Draw(true);
 			}
-
-			if (m_gpuTimer != nullptr)
-				m_gpuTimer->Stop(drawSet.GlobalPointer, 0);
 		}
 	};
 
@@ -1861,14 +1902,13 @@ void ManagerImplemented::Draw(const Manager::DrawParameter& drawParameter)
 		}
 	}
 
-	if (auto gpuParticles = GetGpuParticles())
+	if (auto gpuParticleSystem = GetGpuParticleSystem())
 	{
-		gpuParticles->RenderFrame();
-	}
+		ScopedGpuTime gpuTime(m_gpuTimer, gpuParticleSystem.Get());
 
-	if (m_gpuTimer != nullptr)
-	{
-		m_gpuTimer->EndFrame();
+		GpuParticleSystem::Context context{};
+		context.CoordinateReversed = GetCoordinateSystem() != CoordinateSystem::RH;
+		gpuParticleSystem->RenderFrame(context);
 	}
 
 	// calculate a time
@@ -1882,6 +1922,8 @@ void ManagerImplemented::DrawBack(const Manager::DrawParameter& drawParameter)
 	// start to record a time
 	int64_t beginTime = ::Effekseer::GetTime();
 
+	ScopedGpuStage gpuPass(m_gpuTimer, GpuStage::DrawBack);
+
 	const auto cullingPlanes = GeometryUtility::CalculateFrustumPlanes(drawParameter.ViewProjectionMatrix, drawParameter.ZNear, drawParameter.ZFar, GetSetting()->GetCoordinateSystem());
 
 	const auto render = [this, &drawParameter, &cullingPlanes](DrawSet& drawSet) -> void
@@ -1893,8 +1935,7 @@ void ManagerImplemented::DrawBack(const Manager::DrawParameter& drawParameter)
 
 		if (drawSet.IsAutoDrawing)
 		{
-			if (m_gpuTimer != nullptr)
-				m_gpuTimer->Start(drawSet.GlobalPointer, 0);
+			ScopedGpuTime gpuTime(m_gpuTimer, drawSet.GlobalPointer);
 
 			auto e = (EffectImplemented*)drawSet.ParameterPointer.Get();
 			for (int32_t j = 0; j < e->renderingNodesThreshold; j++)
@@ -1904,9 +1945,6 @@ void ManagerImplemented::DrawBack(const Manager::DrawParameter& drawParameter)
 
 				drawSet.GlobalPointer->RenderedInstanceContainers[j]->Draw(false);
 			}
-
-			if (m_gpuTimer != nullptr)
-				m_gpuTimer->Stop(drawSet.GlobalPointer, 0);
 		}
 	};
 
@@ -1937,11 +1975,8 @@ void ManagerImplemented::DrawFront(const Manager::DrawParameter& drawParameter)
 
 	// start to record a time
 	int64_t beginTime = ::Effekseer::GetTime();
-
-	if (m_gpuTimer != nullptr)
-	{
-		m_gpuTimer->BeginFrame();
-	}
+	
+	ScopedGpuStage gpuPass(m_gpuTimer, GpuStage::DrawFront);
 
 	const auto cullingPlanes = GeometryUtility::CalculateFrustumPlanes(drawParameter.ViewProjectionMatrix, drawParameter.ZNear, drawParameter.ZFar, GetSetting()->GetCoordinateSystem());
 
@@ -1954,8 +1989,7 @@ void ManagerImplemented::DrawFront(const Manager::DrawParameter& drawParameter)
 
 		if (drawSet.IsAutoDrawing)
 		{
-			if (m_gpuTimer != nullptr)
-				m_gpuTimer->Start(drawSet.GlobalPointer, 1);
+			ScopedGpuTime gpuTime(m_gpuTimer, drawSet.GlobalPointer);
 
 			if (drawSet.GlobalPointer->RenderedInstanceContainers.size() > 0)
 			{
@@ -1972,9 +2006,6 @@ void ManagerImplemented::DrawFront(const Manager::DrawParameter& drawParameter)
 			{
 				drawSet.InstanceContainerPointer->Draw(true);
 			}
-
-			if (m_gpuTimer != nullptr)
-				m_gpuTimer->Stop(drawSet.GlobalPointer, 1);
 		}
 	};
 
@@ -1995,14 +2026,13 @@ void ManagerImplemented::DrawFront(const Manager::DrawParameter& drawParameter)
 		}
 	}
 
-	if (auto gpuParticles = GetGpuParticles())
+	if (auto gpuParticleSystem = GetGpuParticleSystem())
 	{
-		gpuParticles->RenderFrame();
-	}
+		ScopedGpuTime gpuTime(m_gpuTimer, gpuParticleSystem.Get());
 
-	if (m_gpuTimer != nullptr)
-	{
-		m_gpuTimer->EndFrame();
+		GpuParticleSystem::Context context{};
+		context.CoordinateReversed = GetCoordinateSystem() != CoordinateSystem::RH;
+		gpuParticleSystem->RenderFrame(context);
 	}
 
 	// calculate a time
@@ -2095,9 +2125,6 @@ void ManagerImplemented::DrawHandle(Handle handle, const Manager::DrawParameter&
 			return;
 		}
 
-		if (m_gpuTimer != nullptr)
-			m_gpuTimer->Start(drawSet.GlobalPointer, 0);
-
 		if (drawSet.GlobalPointer->RenderedInstanceContainers.size() > 0)
 		{
 			for (auto& c : drawSet.GlobalPointer->RenderedInstanceContainers)
@@ -2112,9 +2139,6 @@ void ManagerImplemented::DrawHandle(Handle handle, const Manager::DrawParameter&
 		{
 			drawSet.InstanceContainerPointer->Draw(true);
 		}
-
-		if (m_gpuTimer != nullptr)
-			m_gpuTimer->Stop(drawSet.GlobalPointer, 0);
 	}
 }
 
@@ -2140,9 +2164,6 @@ void ManagerImplemented::DrawHandleBack(Handle handle, const Manager::DrawParame
 			return;
 		}
 
-		if (m_gpuTimer != nullptr)
-			m_gpuTimer->Start(drawSet.GlobalPointer, 0);
-
 		for (int32_t i = 0; i < e->renderingNodesThreshold; i++)
 		{
 			if (IsClippedWithDepth(drawSet, drawSet.GlobalPointer->RenderedInstanceContainers[i], drawParameter))
@@ -2150,9 +2171,6 @@ void ManagerImplemented::DrawHandleBack(Handle handle, const Manager::DrawParame
 
 			drawSet.GlobalPointer->RenderedInstanceContainers[i]->Draw(false);
 		}
-
-		if (m_gpuTimer != nullptr)
-			m_gpuTimer->Stop(drawSet.GlobalPointer, 0);
 	}
 }
 
@@ -2178,9 +2196,6 @@ void ManagerImplemented::DrawHandleFront(Handle handle, const Manager::DrawParam
 			return;
 		}
 
-		if (m_gpuTimer != nullptr)
-			m_gpuTimer->Start(drawSet.GlobalPointer, 1);
-
 		if (drawSet.GlobalPointer->RenderedInstanceContainers.size() > 0)
 		{
 			for (size_t i = e->renderingNodesThreshold; i < drawSet.GlobalPointer->RenderedInstanceContainers.size(); i++)
@@ -2195,9 +2210,6 @@ void ManagerImplemented::DrawHandleFront(Handle handle, const Manager::DrawParam
 		{
 			drawSet.InstanceContainerPointer->Draw(true);
 		}
-
-		if (m_gpuTimer != nullptr)
-			m_gpuTimer->Stop(drawSet.GlobalPointer, 1);
 	}
 }
 
@@ -2223,7 +2235,7 @@ int ManagerImplemented::GetDrawTime() const
 	return m_drawTime;
 }
 
-int32_t ManagerImplemented::GetGPUTime() const
+int32_t ManagerImplemented::GetGpuTime() const
 {
 	if (m_gpuTimer != nullptr)
 	{
@@ -2232,12 +2244,17 @@ int32_t ManagerImplemented::GetGPUTime() const
 		{
 			timeCount += m_gpuTimer->GetResult(kv.second.GlobalPointer);
 		}
+
+		if (m_gpuParticleSystem)
+		{
+			timeCount += m_gpuTimer->GetResult(m_gpuParticleSystem.Get());
+		}
 		return timeCount;
 	}
 	return 0;
 }
 
-int32_t ManagerImplemented::GetGPUTime(Handle handle) const
+int32_t ManagerImplemented::GetGpuTime(Handle handle) const
 {
 	if (m_gpuTimer != nullptr)
 	{

@@ -73,8 +73,8 @@ class RibbonRenderer;
 class RingRenderer;
 class ModelRenderer;
 class TrackRenderer;
-class GPUTimer;
-class GpuParticles;
+class GpuTimer;
+class GpuParticleSystem;
 
 class EffectLoader;
 class TextureLoader;
@@ -83,6 +83,7 @@ class SoundLoader;
 class ModelLoader;
 class CurveLoader;
 class VectorFieldLoader;
+class GpuParticleFactory;
 
 class Texture;
 class SoundData;
@@ -756,8 +757,8 @@ using RibbonRendererRef = RefPtr<RibbonRenderer>;
 using RingRendererRef = RefPtr<RingRenderer>;
 using ModelRendererRef = RefPtr<ModelRenderer>;
 using TrackRendererRef = RefPtr<TrackRenderer>;
-using GPUTimerRef = RefPtr<GPUTimer>;
-using GpuParticlesRef = RefPtr<GpuParticles>;
+using GpuTimerRef = RefPtr<GpuTimer>;
+using GpuParticleSystemRef = RefPtr<GpuParticleSystem>;
 using SoundPlayerRef = RefPtr<SoundPlayer>;
 
 using EffectLoaderRef = RefPtr<EffectLoader>;
@@ -768,6 +769,7 @@ using ModelLoaderRef = RefPtr<ModelLoader>;
 using CurveLoaderRef = RefPtr<CurveLoader>;
 using VectorFieldLoaderRef = RefPtr<VectorFieldLoader>;
 using ProceduralModelGeneratorRef = RefPtr<ProceduralModelGenerator>;
+using GpuParticleFactoryRef = RefPtr<GpuParticleFactory>;
 
 /**
 	@brief	This object generates random values.

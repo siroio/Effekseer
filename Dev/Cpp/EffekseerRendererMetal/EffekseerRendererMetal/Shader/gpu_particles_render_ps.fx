@@ -23,7 +23,7 @@ struct ParameterData
     uint Padding0;
     float2 LifeTime;
     uint EmitShapeType;
-    uint Padding1;
+    uint EmitRotationApplied;
     float4 EmitShapeData[2];
     packed_float3 Direction;
     float Spread;
@@ -63,10 +63,10 @@ struct cb1
     ParameterData paramData;
 };
 
-struct DrawConstants
+struct RenderConstants
 {
     packed_float3 CameraPos;
-    float Reserved0;
+    uint CoordinateReversed;
     packed_float3 CameraFront;
     float Reserved1;
     packed_float3 LightDir;
@@ -81,7 +81,7 @@ struct DrawConstants
 
 struct cb0
 {
-    DrawConstants constants;
+    RenderConstants constants;
 };
 
 struct main0_out

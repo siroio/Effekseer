@@ -11,11 +11,25 @@ inline T Read(uint8_t*& pos) {
 	return data;
 }
 
-GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version)
+static inline void SwapCoordinateSystemTranslation(GpuParticles::float3& t)
 {
-	using float2 = GpuParticles::float2;
-	using float3 = GpuParticles::float3;
-	using float4 = GpuParticles::float4;
+	t.z = -t.z;
+}
+
+static inline void SwapCoordinateSystemRotation(GpuParticles::float3& r)
+{
+	r.x = -r.x;
+	r.y = -r.y;
+}
+
+static inline void SwapCoordinateSystemRotation(float& r)
+{
+	r = -r;
+}
+
+GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version, float magnification, CoordinateSystem coordinateSystem)
+{
+	using namespace Effekseer::GpuParticles;
 
 	GpuParticles::ParamSet paramSet{};
 
@@ -24,34 +38,38 @@ GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version)
 	paramSet.Basic.EmitOffset = Read<float>(pos);
 	paramSet.Basic.LifeTime = Read<std::array<float, 2>>(pos);
 
-	paramSet.EmitShape.Type = (GpuParticles::EmitShape)Read<uint8_t>(pos);
+	paramSet.EmitShape.Type = (EmitShapeT)Read<uint8_t>(pos);
+	paramSet.EmitShape.RotationApplied = Read<uint8_t>(pos) != 0;
 	switch (paramSet.EmitShape.Type)
 	{
-	case GpuParticles::EmitShape::Point:
+	case EmitShapeT::Point:
 		break;
-	case GpuParticles::EmitShape::Line:
-		paramSet.EmitShape.Line.Start = Read<float3>(pos);
-		paramSet.EmitShape.Line.End = Read<float3>(pos);
-		paramSet.EmitShape.Line.Width = Read<float>(pos);
+	case EmitShapeT::Line:
+		paramSet.EmitShape.Line.Start = Read<float3>(pos) * magnification;
+		paramSet.EmitShape.Line.End = Read<float3>(pos) * magnification;
+		paramSet.EmitShape.Line.Width = Read<float>(pos) * magnification;
 		break;
-	case GpuParticles::EmitShape::Circle:
+	case EmitShapeT::Circle:
 		paramSet.EmitShape.Circle.Axis = Read<float3>(pos);
-		paramSet.EmitShape.Circle.Inner = Read<float>(pos);
-		paramSet.EmitShape.Circle.Outer = Read<float>(pos);
+		paramSet.EmitShape.Circle.Inner = Read<float>(pos) * magnification;
+		paramSet.EmitShape.Circle.Outer = Read<float>(pos) * magnification;
 		break;
-	case GpuParticles::EmitShape::Sphere:
-		paramSet.EmitShape.Sphere.Radius = Read<float>(pos);
+	case EmitShapeT::Sphere:
+		paramSet.EmitShape.Sphere.Radius = Read<float>(pos) * magnification;
 		break;
-	case GpuParticles::EmitShape::Model:
+	case EmitShapeT::Model:
 		paramSet.EmitShape.Model.Index = Read<int32_t>(pos);
-		paramSet.EmitShape.Model.Size = Read<float>(pos);
+		paramSet.EmitShape.Model.Size = Read<float>(pos) * magnification;
 		break;
 	}
 
-	paramSet.Position.Direction = Read<float3>(pos);
-	paramSet.Position.Spread = Read<float>(pos);
-	paramSet.Position.InitialSpeed = Read<std::array<float, 2>>(pos);
-	paramSet.Position.Damping = Read<std::array<float, 2>>(pos);
+	paramSet.Velocity.Direction = Read<float3>(pos);
+	paramSet.Velocity.Spread = Read<float>(pos);
+	paramSet.Velocity.InitialSpeed = Read<std::array<float, 2>>(pos);
+	paramSet.Velocity.Damping = Read<std::array<float, 2>>(pos);
+
+	paramSet.Velocity.InitialSpeed[0] *= magnification;
+	paramSet.Velocity.InitialSpeed[1] *= magnification;
 
 	paramSet.Rotation.Offset = Read<std::array<float3, 2>>(pos);
 	paramSet.Rotation.Velocity = Read<std::array<float3, 2>>(pos);
@@ -67,7 +85,7 @@ GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version)
 		paramSet.Rotation.Velocity[i].z *= EFK_PI / 180.0f;
 	}
 
-	paramSet.Scale.Type = (GpuParticles::ScaleType)Read<uint8_t>(pos);
+	paramSet.Scale.Type = (ScaleType)Read<uint8_t>(pos);
 
 	auto ReadScale4 = [](uint8_t*& pos)
 	{
@@ -79,10 +97,10 @@ GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version)
 	};
 	switch (paramSet.Scale.Type)
 	{
-	case GpuParticles::ScaleType::Fixed:
+	case ScaleType::Fixed:
 		paramSet.Scale.Fixed.Scale = ReadScale4(pos);
 		break;
-	case GpuParticles::ScaleType::Easing:
+	case ScaleType::Easing:
 		paramSet.Scale.Easing.Start = ReadScale4(pos);
 		paramSet.Scale.Easing.End = ReadScale4(pos);
 		paramSet.Scale.Easing.Speed = Read<float3>(pos);
@@ -92,43 +110,43 @@ GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version)
 		break;
 	}
 
-	paramSet.Force.Gravity = Read<float3>(pos);
-	paramSet.Force.VortexRotation = Read<float>(pos);
-	paramSet.Force.VortexAttraction = Read<float>(pos);
-	paramSet.Force.VortexCenter = Read<float3>(pos);
+	paramSet.Force.Gravity = Read<float3>(pos) * magnification;
+	paramSet.Force.VortexRotation = Read<float>(pos) * magnification;
+	paramSet.Force.VortexAttraction = Read<float>(pos) * magnification;
+	paramSet.Force.VortexCenter = Read<float3>(pos) * magnification;
 	paramSet.Force.VortexAxis = Read<float3>(pos);
-	paramSet.Force.TurbulencePower = Read<float>(pos);
+	paramSet.Force.TurbulencePower = Read<float>(pos) * magnification;
 	paramSet.Force.TurbulenceSeed = Read<int32_t>(pos);
-	paramSet.Force.TurbulenceScale = Read<float>(pos);
+	paramSet.Force.TurbulenceScale = Read<float>(pos) * 0.125f / magnification;
 	paramSet.Force.TurbulenceOctave = Read<int32_t>(pos);
 
 	paramSet.RenderBasic.BlendType = (AlphaBlendType)Read<uint8_t>(pos);
 	paramSet.RenderBasic.ZWrite = Read<uint8_t>(pos);
 	paramSet.RenderBasic.ZTest = Read<uint8_t>(pos);
 
-	paramSet.RenderShape.Type = (GpuParticles::RenderShape)Read<uint8_t>(pos);
+	paramSet.RenderShape.Type = (RenderShapeT)Read<uint8_t>(pos);
 	paramSet.RenderShape.Data = Read<uint32_t>(pos);
-	paramSet.RenderShape.Size = Read<float>(pos);
+	paramSet.RenderShape.Size = Read<float>(pos) * magnification;
 
 	paramSet.RenderColor.ColorInherit = (BindType)Read<uint8_t>(pos);
-	paramSet.RenderColor.ColorAllType = (GpuParticles::ColorParamType)Read<uint8_t>(pos);
+	paramSet.RenderColor.ColorAllType = (ColorParamType)Read<uint8_t>(pos);
 	paramSet.RenderColor.ColorSpace = (GpuParticles::ColorSpaceType)Read<uint8_t>(pos);
 
 	switch (paramSet.RenderColor.ColorAllType)
 	{
-	case GpuParticles::ColorParamType::Fixed:
+	case ColorParamType::Fixed:
 		paramSet.RenderColor.ColorAll.Fixed.Color = Read<Color>(pos);
 		break;
-	case GpuParticles::ColorParamType::Random:
+	case ColorParamType::Random:
 		paramSet.RenderColor.ColorAll.Random.Color = Read<std::array<Color, 2>>(pos);
 		break;
-	case GpuParticles::ColorParamType::Easing:
+	case ColorParamType::Easing:
 		paramSet.RenderColor.ColorAll.Easing.Start = Read<std::array<Color, 2>>(pos);
 		paramSet.RenderColor.ColorAll.Easing.End = Read<std::array<Color, 2>>(pos);
 		paramSet.RenderColor.ColorAll.Easing.Speed = Read<float3>(pos);
 		break;
-	case GpuParticles::ColorParamType::FCurve:
-	case GpuParticles::ColorParamType::Gradient:
+	case ColorParamType::FCurve:
+	case ColorParamType::Gradient:
 		paramSet.RenderColor.ColorAll.Gradient.Pixels = Read<std::array<Color, 32>>(pos);
 		break;
 	default:
@@ -139,10 +157,26 @@ GpuParticles::ParamSet LoadGpuParticlesParameter(uint8_t*& pos, int32_t version)
 	paramSet.RenderColor.FadeIn = Read<float>(pos);
 	paramSet.RenderColor.FadeOut = Read<float>(pos);
 
-	paramSet.RenderMaterial.Material = (GpuParticles::MaterialType)Read<uint8_t>(pos);
+	paramSet.RenderMaterial.Material = (MaterialType)Read<uint8_t>(pos);
 	paramSet.RenderMaterial.TextureIndexes = Read<std::array<uint32_t, 4>>(pos);
 	paramSet.RenderMaterial.TextureFilters = Read<std::array<uint8_t, 4>>(pos);
 	paramSet.RenderMaterial.TextureWraps = Read<std::array<uint8_t, 4>>(pos);
+
+	if (coordinateSystem == CoordinateSystem::LH)
+	{
+		SwapCoordinateSystemTranslation(paramSet.EmitShape.Line.Start);
+		SwapCoordinateSystemTranslation(paramSet.EmitShape.Line.End);
+
+		SwapCoordinateSystemRotation(paramSet.Rotation.Offset[0]);
+		SwapCoordinateSystemRotation(paramSet.Rotation.Offset[1]);
+		SwapCoordinateSystemRotation(paramSet.Rotation.Velocity[0]);
+		SwapCoordinateSystemRotation(paramSet.Rotation.Velocity[1]);
+
+		SwapCoordinateSystemTranslation(paramSet.Force.Gravity);
+		SwapCoordinateSystemTranslation(paramSet.Force.VortexAxis);
+		SwapCoordinateSystemTranslation(paramSet.Force.VortexCenter);
+		SwapCoordinateSystemRotation(paramSet.Force.VortexRotation);
+	}
 
 	return paramSet;
 }

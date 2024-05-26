@@ -183,7 +183,7 @@ void DeviceMetal::PresentDevice()
 	platform->Present();
 }
 
-void DeviceMetal::SetupEffekseerModules(::Effekseer::ManagerRef efkManager)
+void DeviceMetal::SetupEffekseerModules(::Effekseer::ManagerRef efkManager, bool usingProfiler)
 {
 	// Create a renderer of effects
 	// エフェクトのレンダラーの作成
@@ -205,7 +205,6 @@ void DeviceMetal::SetupEffekseerModules(::Effekseer::ManagerRef efkManager)
 	efkManager->SetRingRenderer(efkRenderer->CreateRingRenderer());
 	efkManager->SetTrackRenderer(efkRenderer->CreateTrackRenderer());
 	efkManager->SetModelRenderer(efkRenderer->CreateModelRenderer());
-	efkManager->SetGpuParticles(efkRenderer->CreateGpuParticles());
 
 	// Specify a texture, model, curve and material loader
 	// It can be extended by yourself. It is loaded from a file on now.
@@ -215,4 +214,9 @@ void DeviceMetal::SetupEffekseerModules(::Effekseer::ManagerRef efkManager)
 	efkManager->SetModelLoader(efkRenderer->CreateModelLoader());
 	efkManager->SetMaterialLoader(efkRenderer->CreateMaterialLoader());
 	efkManager->SetCurveLoader(Effekseer::MakeRefPtr<Effekseer::CurveLoader>());
+	
+	if (usingProfiler)
+	{
+		efkManager->SetGpuTimer(efkRenderer->CreateGpuTimer());
+	}
 }

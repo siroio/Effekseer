@@ -4,9 +4,9 @@ struct ParticleData
     uint Seed;
     float LifeAge;
     uint InheritColor;
-    uint2 DirectionSpeed;
     uint Color;
-    uint Padding;
+    uint Direction;
+    uint2 Velocity;
     column_major float4x3 Transform;
 };
 
@@ -40,7 +40,7 @@ struct ParameterData
     uint Padding0;
     float2 LifeTime;
     uint EmitShapeType;
-    uint Padding1;
+    uint EmitRotationApplied;
     float4 EmitShapeData[2];
     float3 Direction;
     float Spread;
@@ -75,10 +75,10 @@ struct ParameterData
     uint ColorFlags;
 };
 
-struct DrawConstants
+struct RenderConstants
 {
     float3 CameraPos;
-    float Reserved0;
+    uint CoordinateReversed;
     float3 CameraFront;
     float Reserved1;
     float3 LightDir;
@@ -120,17 +120,17 @@ struct TrailData
 
 cbuffer cb1 : register(b1)
 {
-    ParameterData _188_paramData : packoffset(c0);
+    ParameterData _121_paramData : packoffset(c0);
 };
 
 cbuffer cb0 : register(b0)
 {
-    DrawConstants _202_constants : packoffset(c0);
+    RenderConstants _136_constants : packoffset(c0);
 };
 
 cbuffer cb2 : register(b2)
 {
-    EmitterData _325_emitter : packoffset(c0);
+    EmitterData _265_emitter : packoffset(c0);
 };
 
 ByteAddressBuffer Trails : register(t1);
@@ -173,46 +173,35 @@ struct SPIRV_Cross_Output
     float4 gl_Position : SV_Position;
 };
 
-uint spvPackHalf2x16(float2 value)
+float3 UnpackNormalizedFloat3(uint bits)
 {
-    uint2 Packed = f32tof16(value);
-    return Packed.x | (Packed.y << 16);
-}
-
-float2 spvUnpackHalf2x16(uint value)
-{
-    return f16tof32(uint2(value & 0xffff, value >> 16));
-}
-
-float4 UnpackFloat4(uint2 bits)
-{
-    return float4(spvUnpackHalf2x16(uint4(bits.x, bits.x >> uint(16), bits.y, bits.y >> uint(16)).x).x, spvUnpackHalf2x16(uint4(bits.x, bits.x >> uint(16), bits.y, bits.y >> uint(16)).y).x, spvUnpackHalf2x16(uint4(bits.x, bits.x >> uint(16), bits.y, bits.y >> uint(16)).z).x, spvUnpackHalf2x16(uint4(bits.x, bits.x >> uint(16), bits.y, bits.y >> uint(16)).w).x);
+    float3 v = float3(uint3(bits, bits >> uint(10), bits >> uint(20)) & uint3(1023u, 1023u, 1023u));
+    return ((v / 1023.0f.xxx) * 2.0f) - 1.0f.xxx;
 }
 
 void transformSprite(ParticleData particle, inout float3 position)
 {
     position = mul(float4(position, 0.0f), particle.Transform);
-    if (_188_paramData.ShapeData == 0u)
+    if (_121_paramData.ShapeData == 0u)
     {
-        position = mul(float4(position, 0.0f), _202_constants.BillboardMat);
+        position = mul(float4(position, 0.0f), _136_constants.BillboardMat);
     }
     else
     {
-        if (_188_paramData.ShapeData == 1u)
+        if (_121_paramData.ShapeData == 1u)
         {
-            uint2 param = particle.DirectionSpeed;
-            float3 U = UnpackFloat4(param).xyz;
-            float3 F = _202_constants.CameraFront;
+            uint param = particle.Direction;
+            float3 U = normalize(UnpackNormalizedFloat3(param));
+            float3 F = _136_constants.CameraFront;
             float3 R = normalize(cross(U, F));
-            U = normalize(cross(F, R));
-            R = normalize(cross(U, F));
+            F = normalize(cross(R, U));
             position = mul(position, float3x3(float3(R), float3(U), float3(F)));
         }
         else
         {
-            if (_188_paramData.ShapeData == 2u)
+            if (_121_paramData.ShapeData == 2u)
             {
-                position = mul(float4(position, 0.0f), _202_constants.YAxisFixedMat);
+                position = mul(float4(position, 0.0f), _136_constants.YAxisFixedMat);
             }
         }
     }
@@ -221,45 +210,43 @@ void transformSprite(ParticleData particle, inout float3 position)
 
 void transformModel(ParticleData particle, inout float3 position)
 {
+    if (_136_constants.CoordinateReversed != 0u)
+    {
+        position.z = -position.z;
+    }
     position = mul(float4(position, 1.0f), particle.Transform);
-}
-
-float3 UnpackNormalizedFloat3(uint bits)
-{
-    float3 v = float3(uint3(bits, bits >> uint(10), bits >> uint(20)) & uint3(1023u, 1023u, 1023u));
-    return ((v / 1023.0f.xxx) * 2.0f) - 1.0f.xxx;
 }
 
 void transformTrail(ParticleData particle, inout float3 position, inout float2 uv, uint instanceID, uint vertexID)
 {
     uint updateCount = (particle.FlagBits >> uint(1)) & 255u;
-    uint trailLength = min(_188_paramData.ShapeData, updateCount);
+    uint trailLength = min(_121_paramData.ShapeData, updateCount);
     uint segmentID = min((vertexID / 2u), trailLength);
     float3 trailPosition;
     float3 trailDirection;
     if (segmentID == 0u)
     {
         trailPosition = particle.Transform[3];
-        uint2 param = particle.DirectionSpeed;
-        trailDirection = normalize(UnpackFloat4(param).xyz);
+        uint param = particle.Direction;
+        trailDirection = normalize(UnpackNormalizedFloat3(param));
     }
     else
     {
-        uint trailID = _325_emitter.TrailHead + (instanceID * _188_paramData.ShapeData);
-        trailID += ((((_188_paramData.ShapeData + _325_emitter.TrailPhase) - segmentID) + 1u) % _188_paramData.ShapeData);
-        TrailData _358;
-        _358.Position = asfloat(Trails.Load3(trailID * 16 + 0));
-        _358.Direction = Trails.Load(trailID * 16 + 12);
+        uint trailID = _265_emitter.TrailHead + (instanceID * _121_paramData.ShapeData);
+        trailID += ((((_121_paramData.ShapeData + _265_emitter.TrailPhase) - segmentID) + 1u) % _121_paramData.ShapeData);
+        TrailData _299;
+        _299.Position = asfloat(Trails.Load3(trailID * 16 + 0));
+        _299.Direction = Trails.Load(trailID * 16 + 12);
         TrailData trail;
-        trail.Position = _358.Position;
-        trail.Direction = _358.Direction;
+        trail.Position = _299.Position;
+        trail.Direction = _299.Direction;
         trailPosition = trail.Position;
         uint param_1 = trail.Direction;
         trailDirection = normalize(UnpackNormalizedFloat3(param_1));
         uv.y = float(segmentID) / float(trailLength);
     }
-    float3 trailTangent = normalize(cross(_202_constants.CameraFront, trailDirection));
-    position = (trailTangent * position.x) * _188_paramData.ShapeSize;
+    float3 trailTangent = normalize(cross(_136_constants.CameraFront, trailDirection));
+    position = (trailTangent * position.x) * _121_paramData.ShapeSize;
     position += trailPosition;
 }
 
@@ -270,32 +257,32 @@ float4 UnpackColor(uint color32)
 
 VS_Output _main(VS_Input _input)
 {
-    uint index = _325_emitter.ParticleHead + _input.InstanceID;
-    ParticleData _409;
-    _409.FlagBits = Particles.Load(index * 80 + 0);
-    _409.Seed = Particles.Load(index * 80 + 4);
-    _409.LifeAge = asfloat(Particles.Load(index * 80 + 8));
-    _409.InheritColor = Particles.Load(index * 80 + 12);
-    _409.DirectionSpeed = Particles.Load2(index * 80 + 16);
-    _409.Color = Particles.Load(index * 80 + 24);
-    _409.Padding = Particles.Load(index * 80 + 28);
-    _409.Transform = asfloat(uint4x3(Particles.Load(index * 80 + 32), Particles.Load(index * 80 + 48), Particles.Load(index * 80 + 64), Particles.Load(index * 80 + 36), Particles.Load(index * 80 + 52), Particles.Load(index * 80 + 68), Particles.Load(index * 80 + 40), Particles.Load(index * 80 + 56), Particles.Load(index * 80 + 72), Particles.Load(index * 80 + 44), Particles.Load(index * 80 + 60), Particles.Load(index * 80 + 76)));
+    uint index = _265_emitter.ParticleHead + _input.InstanceID;
+    ParticleData _349;
+    _349.FlagBits = Particles.Load(index * 80 + 0);
+    _349.Seed = Particles.Load(index * 80 + 4);
+    _349.LifeAge = asfloat(Particles.Load(index * 80 + 8));
+    _349.InheritColor = Particles.Load(index * 80 + 12);
+    _349.Color = Particles.Load(index * 80 + 16);
+    _349.Direction = Particles.Load(index * 80 + 20);
+    _349.Velocity = Particles.Load2(index * 80 + 24);
+    _349.Transform = asfloat(uint4x3(Particles.Load(index * 80 + 32), Particles.Load(index * 80 + 48), Particles.Load(index * 80 + 64), Particles.Load(index * 80 + 36), Particles.Load(index * 80 + 52), Particles.Load(index * 80 + 68), Particles.Load(index * 80 + 40), Particles.Load(index * 80 + 56), Particles.Load(index * 80 + 72), Particles.Load(index * 80 + 44), Particles.Load(index * 80 + 60), Particles.Load(index * 80 + 76)));
     ParticleData particle;
-    particle.FlagBits = _409.FlagBits;
-    particle.Seed = _409.Seed;
-    particle.LifeAge = _409.LifeAge;
-    particle.InheritColor = _409.InheritColor;
-    particle.DirectionSpeed = _409.DirectionSpeed;
-    particle.Color = _409.Color;
-    particle.Padding = _409.Padding;
-    particle.Transform = _409.Transform;
+    particle.FlagBits = _349.FlagBits;
+    particle.Seed = _349.Seed;
+    particle.LifeAge = _349.LifeAge;
+    particle.InheritColor = _349.InheritColor;
+    particle.Color = _349.Color;
+    particle.Direction = _349.Direction;
+    particle.Velocity = _349.Velocity;
+    particle.Transform = _349.Transform;
     VS_Output _output;
     if ((particle.FlagBits & 1u) != 0u)
     {
         float3 position = _input.Pos;
         float2 uv = _input.UV;
         float4 color = _input.Color;
-        if (_188_paramData.ShapeType == 0u)
+        if (_121_paramData.ShapeType == 0u)
         {
             ParticleData param = particle;
             float3 param_1 = position;
@@ -304,7 +291,7 @@ VS_Output _main(VS_Input _input)
         }
         else
         {
-            if (_188_paramData.ShapeType == 1u)
+            if (_121_paramData.ShapeType == 1u)
             {
                 ParticleData param_2 = particle;
                 float3 param_3 = position;
@@ -313,7 +300,7 @@ VS_Output _main(VS_Input _input)
             }
             else
             {
-                if (_188_paramData.ShapeType == 2u)
+                if (_121_paramData.ShapeType == 2u)
                 {
                     ParticleData param_4 = particle;
                     float3 param_5 = position;
@@ -328,15 +315,15 @@ VS_Output _main(VS_Input _input)
         }
         uint param_9 = particle.Color;
         color *= UnpackColor(param_9);
-        float4 _492 = color;
-        float3 _494 = _492.xyz * _188_paramData.Emissive;
-        color.x = _494.x;
-        color.y = _494.y;
-        color.z = _494.z;
-        _output.Pos = mul(_202_constants.ProjMat, mul(_202_constants.CameraMat, float4(position, 1.0f)));
+        float4 _432 = color;
+        float3 _434 = _432.xyz * _121_paramData.Emissive;
+        color.x = _434.x;
+        color.y = _434.y;
+        color.z = _434.z;
+        _output.Pos = mul(_136_constants.ProjMat, mul(_136_constants.CameraMat, float4(position, 1.0f)));
         _output.UV = uv;
         _output.Color = color;
-        if (_188_paramData.MaterialType == 1u)
+        if (_121_paramData.MaterialType == 1u)
         {
             _output.WorldN = mul(float4(_input.Normal, 0.0f), particle.Transform);
             _output.WorldB = mul(float4(_input.Binormal, 0.0f), particle.Transform);
@@ -348,7 +335,7 @@ VS_Output _main(VS_Input _input)
         _output.Pos = 0.0f.xxxx;
         _output.UV = 0.0f.xx;
         _output.Color = 0.0f.xxxx;
-        if (_188_paramData.MaterialType == 1u)
+        if (_121_paramData.MaterialType == 1u)
         {
             _output.WorldN = 0.0f.xxx;
             _output.WorldB = 0.0f.xxx;

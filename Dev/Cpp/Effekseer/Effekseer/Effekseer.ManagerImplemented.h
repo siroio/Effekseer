@@ -181,7 +181,9 @@ private:
 
 	TrackRendererRef m_trackRenderer;
 
-	GPUTimerRef m_gpuTimer;
+	GpuParticleSystemRef m_gpuParticleSystem;
+
+	GpuTimerRef m_gpuTimer;
 
 	SoundPlayerRef m_soundPlayer;
 
@@ -257,13 +259,17 @@ public:
 
 	void SetTrackRenderer(TrackRendererRef renderer) override;
 
-	GPUTimerRef GetGPUTimer() override;
+	GpuTimerRef GetGpuTimer() override;
 
-	void SetGPUTimer(GPUTimerRef gpuTimer) override;
+	void SetGpuTimer(GpuTimerRef gpuTimer) override;
 
-	GpuParticlesRef GetGpuParticles() override;
+	GpuParticleSystemRef GetGpuParticleSystem() override;
 
-	void SetGpuParticles(GpuParticlesRef gpuParticles) override;
+	void SetGpuParticleSystem(GpuParticleSystemRef system) override;
+
+	GpuParticleFactoryRef GetGpuParticleFactory() override;
+
+	void SetGpuParticleFactory(GpuParticleFactoryRef factory) override;
 
 	const SettingRef& GetSetting() const override;
 
@@ -447,9 +453,9 @@ public:
 
 	int GetDrawTime() const override;
 
-	int32_t GetGPUTime() const override;
+	int32_t GetGpuTime() const override;
 
-	int32_t GetGPUTime(Handle handle) const override;
+	int32_t GetGpuTime(Handle handle) const override;
 
 	int32_t GetRestInstancesCount() const override;
 
